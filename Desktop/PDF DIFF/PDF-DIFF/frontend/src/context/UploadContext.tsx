@@ -1,62 +1,100 @@
-import React, { createContext, useReducer, ReactNode } from 'react';
-import type { UploadedFile } from '../types/domain';
+/**
+ * Upload Context
+ * Manages file upload state and operations
+ */
+
+import React, { createContext, useReducer, ReactNode, useCallback } from 'react';
 import { uploadFiles, cancelUpload } from '../services/uploadManager';
 import { saveUploadState, clearUploadState } from '../utils/storage';
-import { validateFiles, hasDuplicateFiles } from '../services/fileValidator';
 
-interface UploadContextType {
-  files: UploadedFile[];
-  isUploading: boolean;
+export interface UploadContextType {
+  selectedFiles: File[];
   uploadProgress: number;
+  isUploading: boolean;
   error?: string;
-  selectFiles: (fileList: FileList) => void;
-  removeFile: (fileId: string) => void;
+  selectFiles: (files: File[]) => void;
+  removeFile: (index: number) => void;
   clearAllFiles: () => void;
-  submitUpload: () => Promise<string>;
-  cancelCurrentUpload: () => void;
+  submitUpload: (files: File[]) => Promise<string>;
+  cancelUpload: () => void;
 }
 
 interface UploadState {
-  files: UploadedFile[];
-  isUploading: boolean;
+  selectedFiles: File[];
   uploadProgress: number;
+  isUploading: boolean;
   error?: string;
 }
 
 type UploadAction =
-  | { type: 'SELECT_FILES'; payload: UploadedFile[] }
-  | { type: 'REMOVE_FILE'; payload: string }
-  | { type: 'CLEAR_FILES' }
+  | { type: 'SELECT_FILES'; payload: File[] }
+  | { type: 'REMOVE_FILE'; payload: number }
+  | { type: 'CLEAR_ALL' }
   | { type: 'START_UPLOAD' }
   | { type: 'UPDATE_PROGRESS'; payload: number }
-  | { type: 'COMPLETE_UPLOAD' }
-  | { type: 'CANCEL_UPLOAD' }
-  | { type: 'SET_ERROR'; payload?: string };
+  | { type: 'UPLOAD_COMPLETE' }
+  | { type: 'UPLOAD_ERROR'; payload: string }
+  | { type: 'CANCEL_UPLOAD' };
 
 const initialState: UploadState = {
-  files: [],
-  isUploading: false,
+  selectedFiles: [],
   uploadProgress: 0,
+  isUploading: false,
 };
 
 function uploadReducer(state: UploadState, action: UploadAction): UploadState {
   switch (action.type) {
     case 'SELECT_FILES':
-      return { ...state, files: action.payload, error: undefined };
-    case 'REMOVE_FILE':
-      return { ...state, files: state.files.filter((f) => f.id !== action.payload) };
-    case 'CLEAR_FILES':
-      return { ...state, files: [], uploadProgress: 0, error: undefined };
+      return {
+        ...state,
+        selectedFiles: action.payload,
+        error: undefined,
+      };
+    case 'REMOVE_FILE': {
+      const newFiles = state.selectedFiles.filter((_, index) => index !== action.payload);
+      return {
+        ...state,
+        selectedFiles: newFiles,
+      };
+    }
+    case 'CLEAR_ALL':
+      return {
+        ...state,
+        selectedFiles: [],
+        uploadProgress: 0,
+      };
     case 'START_UPLOAD':
-      return { ...state, isUploading: true, uploadProgress: 0, error: undefined };
+      return {
+        ...state,
+        isUploading: true,
+        uploadProgress: 0,
+        error: undefined,
+      };
     case 'UPDATE_PROGRESS':
-      return { ...state, uploadProgress: action.payload };
-    case 'COMPLETE_UPLOAD':
-      return { ...state, isUploading: false, uploadProgress: 100 };
+      return {
+        ...state,
+        uploadProgress: action.payload,
+      };
+    case 'UPLOAD_COMPLETE':
+      return {
+        ...state,
+        isUploading: false,
+        uploadProgress: 100,
+        selectedFiles: [],
+      };
+    case 'UPLOAD_ERROR':
+      return {
+        ...state,
+        isUploading: false,
+        error: action.payload,
+      };
     case 'CANCEL_UPLOAD':
-      return { ...state, isUploading: false, uploadProgress: 0 };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload, isUploading: false };
+      return {
+        ...state,
+        isUploading: false,
+        uploadProgress: 0,
+        error: 'Upload cancelled by user',
+      };
     default:
       return state;
   }
@@ -67,67 +105,66 @@ export const UploadContext = createContext<UploadContextType | undefined>(undefi
 export function UploadProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(uploadReducer, initialState);
 
-  const selectFiles = (fileList: FileList) => {
-    const filesArray = Array.from(fileList);
-    const validation = validateFiles(filesArray);
-    if (!validation.valid) {
-      dispatch({ type: 'SET_ERROR', payload: validation.errors[0] });
-      return;
-    }
-    if (hasDuplicateFiles(filesArray)) {
-      dispatch({ type: 'SET_ERROR', payload: 'Duplicate files detected' });
-      return;
-    }
-    const uploadedFiles: UploadedFile[] = filesArray.map((file, index) => ({
-      id: `${file.name}-${index}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      file,
-      progress: 0,
-    }));
-    dispatch({ type: 'SELECT_FILES', payload: uploadedFiles });
-    saveUploadState(uploadedFiles.map((f) => f.name), uploadedFiles.map((f) => f.size));
-  };
+  const selectFiles = useCallback((files: File[]) => {
+    dispatch({ type: 'SELECT_FILES', payload: files });
+    const fileNames = files.map((f) => f.name);
+    const fileSizes = files.map((f) => f.size);
+    saveUploadState(fileNames, fileSizes);
+  }, []);
 
-  const removeFile = (fileId: string) => {
-    dispatch({ type: 'REMOVE_FILE', payload: fileId });
-  };
+  const removeFile = useCallback((index: number) => {
+    dispatch({ type: 'REMOVE_FILE', payload: index });
+  }, []);
 
-  const clearAllFiles = () => {
-    dispatch({ type: 'CLEAR_FILES' });
+  const clearAllFiles = useCallback(() => {
+    dispatch({ type: 'CLEAR_ALL' });
     clearUploadState();
-  };
+  }, []);
 
-  const submitUpload = async (): Promise<string> => {
-    if (state.files.length !== 2) {
-      dispatch({ type: 'SET_ERROR', payload: 'Please select exactly 2 files' });
-      throw new Error('Invalid file count');
-    }
+  const submitUpload = useCallback(async (files: File[]): Promise<string> => {
     dispatch({ type: 'START_UPLOAD' });
+
     try {
-      const jobId = await uploadFiles(state.files[0].file, state.files[1].file, {
-        onProgress: (progress) => {
+      const jobId = await uploadFiles(files[0], files[1], {
+        onProgress: (progress: number) => {
           dispatch({ type: 'UPDATE_PROGRESS', payload: progress });
         },
+        onComplete: (jobId: string) => {
+          dispatch({ type: 'UPLOAD_COMPLETE' });
+          clearUploadState();
+        },
+        onError: (error: Error) => {
+          dispatch({ type: 'UPLOAD_ERROR', payload: error.message });
+        },
       });
-      dispatch({ type: 'COMPLETE_UPLOAD' });
-      clearUploadState();
+
       return jobId;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Upload failed';
-      dispatch({ type: 'SET_ERROR', payload: message });
+      dispatch({ type: 'UPLOAD_ERROR', payload: message });
       throw error;
     }
-  };
+  }, []);
 
-  const cancelCurrentUpload = () => {
+  const handleCancelUpload = useCallback(() => {
     cancelUpload();
     dispatch({ type: 'CANCEL_UPLOAD' });
-  };
+  }, []);
 
   return (
-    <UploadContext.Provider value={{ files: state.files, isUploading: state.isUploading, uploadProgress: state.uploadProgress, error: state.error, selectFiles, removeFile, clearAllFiles, submitUpload, cancelCurrentUpload }}>
+    <UploadContext.Provider
+      value={{
+        selectedFiles: state.selectedFiles,
+        uploadProgress: state.uploadProgress,
+        isUploading: state.isUploading,
+        error: state.error,
+        selectFiles,
+        removeFile,
+        clearAllFiles,
+        submitUpload,
+        cancelUpload: handleCancelUpload,
+      }}
+    >
       {children}
     </UploadContext.Provider>
   );
