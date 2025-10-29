@@ -85,7 +85,7 @@ A user should be able to download a summary report of the comparison results in 
 - What happens when a user uploads files larger than 50MB? (System should show a clear error message with file size limit)
 - How does the system handle unsupported file formats? (System should validate file type and show error before upload)
 - What happens when the API request times out during polling? (System should retry up to 3 times, then show an error with option to reload)
-- How does the system handle network disconnection during upload? (System should pause upload and provide a resume option)
+- How does the system handle network disconnection during upload? (System should show "Network error - connection lost" with retry button; user must restart upload from beginning)
 - What happens if the comparison takes longer than expected (e.g., > 10 minutes)? (System should notify user and allow them to save job ID for later retrieval)
 - How does the system handle identical PDFs? (System should show 0 differences and display a clear message)
 - What happens when user navigates to a non-existent job ID? (System should show a 404 message with option to start a new comparison)
@@ -108,14 +108,14 @@ A user should be able to download a summary report of the comparison results in 
 
 **Comparison Results Viewer**:
 - **FR-006**: System MUST poll the comparison API status endpoint every 3 seconds while job is processing
-- **FR-007**: System MUST display the comparison result as side-by-side PDF pages with synchronized scrolling and zoom
+- **FR-007**: System MUST display the comparison result as side-by-side PDF pages with synchronized scrolling and zoom (keyboard +/-, scroll wheel on desktop; pinch-to-zoom on mobile/touch devices)
 - **FR-008**: System MUST highlight differences in the PDFs (text additions in green, deletions in red, modifications in yellow)
 - **FR-009**: System MUST display a summary of differences (total count and affected pages)
 - **FR-010**: System MUST support PDF navigation (next/previous page, jump to specific page)
 
 **Job Management**:
 - **FR-011**: System MUST preserve job ID in the URL to allow bookmarking and sharing results
-- **FR-012**: System MUST allow users to access previously completed comparisons using the job ID
+- **FR-012**: System MUST allow users to access previously completed comparisons using the job ID (cached in browser memory during session, cleared on page close)
 - **FR-013**: System MUST display clear error messages for failed comparison jobs with option to restart
 
 **UI/UX**:
@@ -158,6 +158,16 @@ A user should be able to download a summary report of the comparison results in 
 - **Polling Strategy**: Status polling every 3 seconds is acceptable; WebSocket would be future optimization
 - **Difference Detection**: Backend handles difference detection; frontend only displays results in UI
 
+## Clarifications
+
+### Session 2025-10-29
+
+- **Q: Should comparison results be cached locally for fast revisits?** → **A: Cache in browser memory (React state) during session only.** Results clear on page close. Matches MVP scope and provides good UX without persistent storage complexity.
+
+- **Q: Should upload pause/resume be implemented for network disconnections?** → **A: No pause/resume. Show "Network error - retry" option only.** Simplifies uploadManager and avoids backend chunking complexity. Users can restart upload if needed.
+
+- **Q: Should PDF viewer support touch gestures (pinch-to-zoom) for mobile?** → **A: Yes, support both mouse (scroll wheel, keyboard +/-) and touch (pinch-to-zoom).** Leverage pdfjs-dist built-in gesture support for MVP-friendly implementation.
+
 ## Open Questions
 
-None currently - specification is complete and ready for planning phase
+None - all critical ambiguities resolved
