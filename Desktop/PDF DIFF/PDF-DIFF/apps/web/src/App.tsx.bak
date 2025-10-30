@@ -1,0 +1,235 @@
+import { useState } from 'react';
+import { 
+  FileUploadZone, 
+  ComparisonResults, 
+  PDFViewer,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Alert,
+  AlertDescription,
+  Progress,
+  Separator
+} from '@pdf-diff/ui';
+import { FileText, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface ComparisonResult {
+  success: boolean;
+  message?: string;
+  differences?: any;
+  similarity_score?: number;
+  total_pages?: number;
+  [key: string]: any;
+}
+
+export default function App() {
+  const [file1, setFile1] = useState<File | null>(null);
+  const [file2, setFile2] = useState<File | null>(null);
+  const [isComparing, setIsComparing] = useState(false);
+  const [results, setResults] = useState<ComparisonResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+
+  // Backend API URL - can be configured via environment variable
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+  const handleCompare = async () => {
+    if (!file1 || !file2) {
+      setError('Lütfen karşılaştırma yapmadan önce her iki PDF dosyasını da yükleyin.');
+      toast.error('Lütfen her iki PDF dosyasını da yükleyin');
+      return;
+    }
+
+    setIsComparing(true);
+    setError(null);
+    setResults(null);
+    setProgress(0);
+
+    // Simulate progress
+    const progressInterval = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return 90;
+        }
+        return prev + 10;
+      });
+    }, 200);
+
+    try {
+      const formData = new FormData();
+      formData.append('file1', file1);
+      formData.append('file2', file2);
+
+      const response = await fetch(`${API_BASE_URL}/api/compare`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setResults(data);
+      toast.success('Karşılaştırma başarıyla tamamlandı!');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'PDF karşılaştırması başarısız oldu';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setIsComparing(false);
+    }
+  };
+
+  const handleReset = () => {
+    setFile1(null);
+    setFile2(null);
+    setResults(null);
+    setError(null);
+    setProgress(0);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <FileText className="w-8 h-8 text-blue-600" />
+            <h1 className="text-4xl font-bold text-slate-900">PDF Karşılaştırma Aracı</h1>
+          </div>
+          <p className="text-slate-600">İki PDF dosyasını yükleyin ve farklılıklarını bulun</p>
+        </div>
+
+        {/* Main Content */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* File Upload Section */}
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>PDF Dosyaları Yükleyin</CardTitle>
+              <CardDescription>
+                Karşılaştırmak için iki PDF dosyasını seçin
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-700 mb-2">
+                    Dosya 1 {file1 && <span className="text-green-600">✓</span>}
+                  </p>
+                  <FileUploadZone
+                    onFileSelect={setFile1}
+                    label="Birinci PDF dosyasını yükleyin"
+                  />
+                  {file1 && (
+                    <p className="text-xs text-slate-600 mt-2 truncate">
+                      📄 {file1.name}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <p className="text-sm font-medium text-slate-700 mb-2">
+                    Dosya 2 {file2 && <span className="text-green-600">✓</span>}
+                  </p>
+                  <FileUploadZone
+                    onFileSelect={setFile2}
+                    label="İkinci PDF dosyasını yükleyin"
+                  />
+                  {file2 && (
+                    <p className="text-xs text-slate-600 mt-2 truncate">
+                      📄 {file2.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              {isComparing && (
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-slate-700">Karşılaştırma yapılıyor...</span>
+                    <span className="text-slate-600">{Math.round(progress)}%</span>
+                  </div>
+                  <Progress value={progress} className="h-2" />
+                </div>
+              )}
+
+              {/* Error Alert */}
+              {error && (
+                <Alert className="border-red-200 bg-red-50">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800">
+                    {error}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleCompare}
+                  disabled={!file1 || !file2 || isComparing}
+                  className="flex-1"
+                >
+                  {isComparing ? 'Karşılaştırılıyor...' : 'Karşılaştır'}
+                </Button>
+                {(file1 || file2 || results) && (
+                  <Button
+                    onClick={handleReset}
+                    variant="outline"
+                    disabled={isComparing}
+                  >
+                    Sıfırla
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Separator */}
+        {results && <Separator className="my-6" />}
+
+        {/* Results Section */}
+        {results && (
+          <ComparisonResults results={results} />
+        )}
+
+        {/* PDF Viewer */}
+        {results && file1 && file2 && (
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>PDF Görüntüleyici</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm font-medium text-slate-700 mb-2">
+                    Dosya 1
+                  </p>
+                  <PDFViewer file={file1} />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700 mb-2">
+                    Dosya 2
+                  </p>
+                  <PDFViewer file={file2} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
